@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Lab 02 - ISA - Kornel Domeradzki</title>
+        <style>
+            .form-elem {
+                float: left;
+                margin-right: 5px;
+            }
+
+            table, td, th {
+                border: 1px solid black;
+            }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Laboratorium 02 - ISA - Kornel Domeradzki</h1>
+        <form method="GET">
+            <div class="form-elem">
+                <label for="a">a=</label>
+                <input type="number" name="a" value="-4">
+            </div>
+            <div class="form-elem">
+                <label for="b">b=</label>
+                <input type="number" name="b" value="12"><br>
+            </div>
+            <div class="form-elem">
+                <label for="d">d=</label>
+                <input type="number" name="d" value="3"><br>
+            </div>
+            <div class="form-elem">
+                <label for="N">N=</label>
+                <input type="number" name="N" value="10"><br>
+            </div>
+            <div class="form-elem">
+                <button type="submit">Oblicz</button>
+            </div>
+            <span style="clear: both;"></span>
+            <br/>
+        </form>
+
+        <br><br>
+        <table>
+            <tr>
+                <th>L.p.</th>
+                <th>x<sup>real</sup></th>
+                <th>x<sup>int</sup></th>
+                <th>x<sup>bin</sup> (little endian)</th>
+                <th>x<sup>int</sup></th> <!-- tu chyba chodzi o wyliczenie z bin na int i potem na real ? -->
+                <th>x<sup>real</sup></th>
+                <th>ocena</th>
+            </tr>
+
+            {{ range $i, $a := . }}
+            <tr>
+                <td>{{ $i }}</td>
+                <td>{{ $a.XReal }}</td>
+                <td>{{ $a.XInt }}</td>
+                <td>{{ $a.XBin }}</td>
+                <td>{{ $a.XIntConv }}</td>
+                <td>{{ $a.XRealConv }}</td>
+                <td>{{ $a.Grade }}</td>
+            </tr>
+            {{ end }}
+        </table>
+        {{ if not . }}
+            <center><h3>Kliknij przycisk "Oblicz" by zobaczyć dane!</h3></center>
+        {{ end }}
+    </body>
+</html>
