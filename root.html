@@ -2,7 +2,7 @@
 <html>
     <head>
         <meta charset="utf-8">
-        <title>Lab 02 - ISA - Kornel Domeradzki</title>
+        <title>Lab 03 - ISA - Kornel Domeradzki</title>
         <style>
             .form-elem {
                 float: left;
@@ -20,7 +20,7 @@
         </style>
     </head>
     <body>
-        <h1>Laboratorium 02 - ISA - Kornel Domeradzki</h1>
+        <h1>Laboratorium 03 - ISA - Kornel Domeradzki</h1>
         <form method="GET">
             <div class="form-elem">
                 <label for="a">a=</label>
@@ -49,23 +49,25 @@
         <table>
             <tr>
                 <th>L.p.</th>
-                <th>x<sup>real</sup></th>
-                <th>x<sup>int</sup></th>
-                <th>x<sup>bin</sup> (little endian)</th>
-                <th>x<sup>int</sup></th> <!-- tu chyba chodzi o wyliczenie z bin na int i potem na real ? -->
-                <th>x<sup>real</sup></th>
-                <th>ocena</th>
+                <th><i>x<sup>real</sup></i></th>
+                <th><i>f(x)</i></th>
+                <th><i>g(x)</i></th> <!-- Funkcja dopasowania -->
+                <th><i>p(x)</i></th> <!-- Prawdopodobieństwo -->
+                <th><i>q(x)</i></th> <!-- dolny przedział -->
+                <th><i>r</i></th> <!-- wylosowane przypadkowe liczby z przedziało <0, 1> -->
+                <th><i>x<sub>2</sub><sup>real</sup></i></th>
             </tr>
 
             {{ range $i, $a := . }}
             <tr>
                 <td>{{ $i }}</td>
                 <td>{{ $a.XReal }}</td>
-                <td>{{ $a.XInt }}</td>
-                <td>{{ $a.XBin }}</td>
-                <td>{{ $a.XIntConv }}</td>
-                <td>{{ $a.XRealConv }}</td>
-                <td>{{ $a.Grade }}</td>
+                <td>{{ $a.Fx }}</td>
+                <td>{{ $a.Gx }}</td>
+                <td>{{ $a.Px }}</td>
+                <td>{{ $a.Qx }}</td>
+                <td>{{ $a.R }}</td>
+                <td>x<sub>{{ $a.XReal2 }}</sub></td>
             </tr>
             {{ end }}
         </table>

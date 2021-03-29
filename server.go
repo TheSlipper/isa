@@ -8,17 +8,19 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/TheSlipper/isa/evolalg"
 )
 
 type ExecResult struct {
-	XReal     string
-	XInt      int
-	XBin      []byte
-	XIntConv  int
-	XRealConv string
-	Grade     float64
+	XReal  string
+	Fx     float64
+	Gx     float64
+	Px     float64
+	Qx     float64
+	R      float64
+	XReal2 int
 }
 
 // root pobiera plik strony root.html z dysku i prezentuje go przeglądarce.
@@ -56,45 +58,56 @@ func root(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// function and solver for this assignment
+		// solver for this assignment with a grading function described by this formula:
 		// F(x)= x MOD1 *(COS(20*π *x)–SIN(x))
 		// d = 0,001 -> 3
-		gradingFunc := func(x float64) float64 {
+		gas, err := evolalg.NewGeneticAlgorithmSolver(a, b, d, func(x float64) float64 {
 			return math.Mod(x, 1*(math.Cos(20*math.Pi*x)-math.Sin(x)))
-		}
-
-		gas, err := evolalg.NewGeneticAlgorithmSolver(a, b, d)
+		})
 		if err != nil {
 			throwErr(w, r, err, http.StatusInternalServerError)
 			return
 		}
 
-		// Generate random xreals in the range of the function
-		// res := make([]ExecResults, N)
+		// Run a selection
+		results = make([]ExecResult, N)
+		rands := make([]float64, N)
+		rand.Seed(time.Now().UnixNano())
 		for i := 0; i < N; i++ {
-			// template for floating point representation
-			temp := strings.Replace(fmt.Sprint("%."+strconv.Itoa(int(d))+"f"), " ", "", -1)
-
-			xreal := a + rand.Float64()*(b-a)
-			xreal = math.Round(xreal*math.Pow10(int(d))) / math.Pow10(int(d))
-			xint := gas.XRealToXInt(xreal)
-			xbin := gas.XIntToXBin(uint32(xint))
-			xintConv := gas.XBinToXInt(xbin)
-			xrealConv := gas.XIntToXReal(xintConv)
-			xrealConv = math.Round(xrealConv*math.Pow10(int(d))) / math.Pow10(int(d))
-			grade := gradingFunc(xreal)
-
-			res := ExecResult{
-				XReal:     fmt.Sprintf(temp, xreal),
-				XInt:      xint,
-				XBin:      xbin,
-				XIntConv:  xintConv,
-				XRealConv: fmt.Sprintf(temp, xreal),
-				Grade:     grade,
-			}
-			results = append(results, res)
+			rands[i] = a + rand.Float64()*(b-a)
+			rands[i] = math.Round(rands[i]*math.Pow10(int(d))) / math.Pow10(int(d)) // TODO Sprawdzić czy to potrzebne
+		}
+		err = gas.Selection(rands...)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
 		}
 
+		// Get the results calculated so far and store them in the array
+		template := strings.Replace(fmt.Sprint("%."+strconv.Itoa(int(d))+"f"), " ", "", -1)
+		grades, fits, probs, probsHB := gas.Cache()
+		for i := 0; i < N; i++ {
+			results[i] = ExecResult{
+				XReal: fmt.Sprintf(template, rands[i]),
+				Fx:    grades[i],
+				Gx:    fits[i],
+				Px:    probs[i],
+				Qx:    probsHB[i],
+			}
+		}
+
+		// Generate new random numbers and show which subset it fits in
+		rand.Seed(time.Now().Add(5 * time.Second).UnixNano())
+		for i := 0; i < N; i++ {
+			r := rand.Float64()
+			results[i].R = r
+			for j := 0; j < N; j++ {
+				if r <= probsHB[j] {
+					results[i].XReal2 = j
+					break
+				}
+			}
+		}
 	}
 
 	// generate template and process it
