@@ -2,11 +2,31 @@
 <html>
     <head>
         <meta charset="utf-8">
-        <title>Lab 03 - ISA - Kornel Domeradzki</title>
+        <title>Lab 04 - ISA - Kornel Domeradzki</title>
         <style>
             .form-elem {
                 float: left;
                 margin-right: 5px;
+            }
+
+            .legenda {
+                width: 400px;
+            }
+
+            .przed {
+                background-color: darkseagreen;
+            }
+
+            .krzyzowanie {
+                background-color: chocolate;
+            }
+
+            .mutacja {
+                background-color: cornflowerblue;
+            }
+
+            .po {
+                background-color: hotpink;
             }
 
             table, td, th {
@@ -20,25 +40,33 @@
         </style>
     </head>
     <body>
-        <h1>Laboratorium 03 - ISA - Kornel Domeradzki</h1>
+        <h1>Laboratorium 04 - ISA - Kornel Domeradzki</h1>
         <i>Dokładność wyrażona jest w liczbie całkowitej. Czyli przykładowo gdy d=3 to dokładność ta jest reprezentowana w obliczeniach przez wartość 10<sup>-3</sup>.</i>
         <br/><br/>
         <form method="GET">
             <div class="form-elem">
-                <label for="a">a=</label>
+                <label for="a"><i>a</i>=</label>
                 <input type="number" name="a" value="-4">
             </div>
             <div class="form-elem">
-                <label for="b">b=</label>
+                <label for="b"><i>b</i>=</label>
                 <input type="number" name="b" value="12"><br>
             </div>
             <div class="form-elem">
-                <label for="d">d=</label>
+                <label for="d"><i>d</i>=</label>
                 <input type="number" name="d" value="3"><br>
             </div>
             <div class="form-elem">
-                <label for="N">N=</label>
+                <label for="N"><i>N</i>=</label>
                 <input type="number" name="N" value="10"><br>
+            </div>
+            <div class="form-elem">
+                <label for="N"><i>P<sub>k</sub>=</i></label>
+                <input name="Pk" value="0.75"><br>
+            </div>
+            <div class="form-elem">
+                <label for="Pm"><i>P<sub>m</sub>=</i></label>
+                <input name="Pm" value="0.005"><br>
             </div>
             <div class="form-elem">
                 <button type="submit">Oblicz</button>
@@ -48,28 +76,75 @@
         </form>
 
         <br><br>
+        <table class="legenda">
+            <tr>
+                <th>Legenda kolorów</th>
+            </tr>
+            <tr>
+                <td class="przed">Przed operacjami</td>
+            </tr>
+            <tr>
+                <td class="krzyzowanie">Krzyżowanie</td>
+            </tr>
+            <tr>
+                <td class="mutacja">Mutacja</td>
+            </tr>
+            <tr>
+                <td class="po">Po operacjach</td>
+            </tr>
+        </table>
+        <br><br>
+
         <table>
             <tr>
-                <th>L.p.</th>
-                <th><i>x<sup>real</sup></i></th>
-                <th><i>f(x)</i></th>
-                <th><i>g(x)</i></th> <!-- Funkcja dopasowania -->
-                <th><i>p(x)</i></th> <!-- Prawdopodobieństwo -->
-                <th><i>q(x)</i></th> <!-- dolny przedział -->
-                <th><i>r</i></th> <!-- wylosowane przypadkowe liczby z przedziało <0, 1> -->
-                <th><i>x<sub>2</sub><sup>real</sup></i></th>
+                <!-- Przed krzyżowaniem i mutacją -->
+                <th class="przed">L.p.</th>
+                <th class="przed"><i>x<sup>real</sup></i></th>
+                <th class="przed"><i>x<sup>bin</sup></i></th>
+
+                <!-- Krzyżowanie -->
+                <!-- Albo xbin albo kreska - zależne od tego czy wylosowana liczba jest mniejsza -->
+                <!-- od  -->
+                <th class="krzyzowanie">rodzice (<i>x<sup>bin</sup></i>)</th>
+                <th class="krzyzowanie">pc</th> <!-- punkt cięcia - losowany dla każdej pary -->
+                <th class="krzyzowanie">dzieci (<i>x<sup>bin</sup></i>)</th> <!-- po krzyżowaniu -->
+                <!-- osobniki po krzyżowaniu - przepisane potomki virgins -->
+                <th class="krzyzowanie">populacja po krzyżowaniu</th>
+
+                <!-- Mutacja -->
+                <th class="mutacja">punkty mutacji</th>
+                <th class="mutacja">po mutacji</th>
+
+                <!-- Po krzyżowaniu i mutacji -->
+                <th class="po"><i>x<sup>real</sup></i></th>
+                <th class="po"><i>f(x)</i></th>
             </tr>
 
             {{ range $i, $a := . }}
             <tr>
                 <td>{{ $i }}</td>
-                <td>{{ $a.XReal }}</td>
-                <td>{{ $a.Fx }}</td>
-                <td>{{ $a.Gx }}</td>
-                <td>{{ $a.Px }}</td>
-                <td>{{ $a.Qx }}</td>
-                <td>{{ $a.R }}</td>
-                <td>x<sub>{{ $a.XReal2 }}</sub></td>
+                <td>{{ $a.InitXReal }}</td>
+                <td>{{ $a.InitXBin }}</td>
+                <td>{{ $a.ParentXBin }}</td>
+                <td>{{ $a.CutPoint }}</td>
+                <td>
+                    {{ if $a.Offspring }}
+                        {{ $a.Offspring }}
+                    {{ else }}
+                        <center><b>-</b></center>
+                    {{ end }}
+                </td>
+                <td>{{ $a.PostCrossover }}</td>
+                <td>
+                    {{ if $a.MutationIndeces }}
+                        {{ $a.MutationIndeces }}
+                    {{ else }}
+                        <center><b>-</b></center>
+                    {{ end }}
+                </td>
+                <td>{{ $a.PostMutation }}</td>
+                <td>{{ $a.FinalXReal }}</td>
+                <td>{{ $a.FinalFx }}</td>
             </tr>
             {{ end }}
         </table>

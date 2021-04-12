@@ -14,13 +14,16 @@ import (
 )
 
 type ExecResult struct {
-	XReal  string
-	Fx     float64
-	Gx     float64
-	Px     float64
-	Qx     float64
-	R      float64
-	XReal2 int
+	InitXReal       string
+	InitXBin        []byte
+	ParentXBin      []byte
+	CutPoint        int
+	Offspring       []byte
+	PostCrossover   []byte
+	MutationIndeces []int
+	PostMutation    []byte
+	FinalXReal      string
+	FinalFx         float64
 }
 
 // root pobiera plik strony root.html z dysku i prezentuje go przeglądarce.
@@ -28,7 +31,8 @@ func root(w http.ResponseWriter, r *http.Request) {
 	// Get the GET params
 	generate := true
 	nStr, aStr, bStr, dStr := getGETParam("N", w, r), getGETParam("a", w, r), getGETParam("b", w, r), getGETParam("d", w, r)
-	if nStr == "" || aStr == "" || bStr == "" || dStr == "" {
+	cpStr, mpStr := getGETParam("Pk", w, r), getGETParam("Pm", w, r)
+	if nStr == "" || aStr == "" || bStr == "" || dStr == "" || cpStr == "" || mpStr == "" {
 		generate = false
 	}
 
@@ -53,6 +57,16 @@ func root(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b, err := strconv.ParseFloat(bStr, 64)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
+		cp, err := strconv.ParseFloat(cpStr, 64)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
+		mp, err := strconv.ParseFloat(mpStr, 64)
 		if err != nil {
 			throwErr(w, r, err, http.StatusInternalServerError)
 			return
@@ -83,30 +97,43 @@ func root(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get the results calculated so far and store them in the array
-		template := strings.Replace(fmt.Sprint("%."+strconv.Itoa(int(d))+"f"), " ", "", -1)
-		grades, fits, probs, probsHB := gas.Cache()
-		for i := 0; i < N; i++ {
-			results[i] = ExecResult{
-				XReal: fmt.Sprintf(template, rands[i]),
-				Fx:    grades[i],
-				Gx:    fits[i],
-				Px:    probs[i],
-				Qx:    probsHB[i],
-			}
+		// Crossover and save the results
+		parents, offsprings, cutpoints, err := gas.Crossover(cp)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
 		}
 
-		// Generate new random numbers and show which subset it fits in
-		rand.Seed(time.Now().Add(5 * time.Second).UnixNano())
+		// Get the population after the crossover
+		postCrossoverPop := gas.Population()
+
+		// Mutate and save the results
+		mut, err := gas.Mutate(mp)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
+
+		// Get the population after the mutation
+		postMutPop := gas.Population()
+
+		// Populate the entries
+		template := strings.Replace(fmt.Sprint("%."+strconv.Itoa(int(d))+"f"), " ", "", -1)
 		for i := 0; i < N; i++ {
-			r := rand.Float64()
-			results[i].R = r
-			for j := 0; j < N; j++ {
-				if r <= probsHB[j] {
-					results[i].XReal2 = j
-					break
-				}
+			results[i] = ExecResult{
+				InitXReal:       fmt.Sprintf(template, rands[i]),
+				InitXBin:        gas.XIntToXBin(uint32(gas.XRealToXInt(rands[i]))),
+				ParentXBin:      parents[i],
+				CutPoint:        cutpoints[i],
+				Offspring:       offsprings[i],
+				PostCrossover:   postCrossoverPop[i],
+				MutationIndeces: mut[i],
+				PostMutation:    postMutPop[i],
 			}
+
+			fXReal := gas.XIntToXReal(gas.XBinToXInt(postMutPop[i]))
+			results[i].FinalXReal = fmt.Sprintf(template, fXReal)
+			results[i].FinalFx = gas.Grade(fXReal)
 		}
 	}
 

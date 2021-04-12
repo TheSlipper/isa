@@ -3,6 +3,8 @@ package evolalg
 import (
 	"errors"
 	"math"
+	"math/rand"
+	"time"
 )
 
 // GeneticAlgorithmSolver is a struct that contains all of the data related to a generic algorithm instance and shares
@@ -14,7 +16,7 @@ type GeneticAlgorithmSolver struct {
 	l       int                     // minimal bit size for representation of all of the population
 	fmin    float64                 // lowest value of the gFunc in the <a, b> set
 	popSize uint                    // actual population size (higher bound of <0, pop> set)
-	popArr  []byte                  // population array in little endian
+	popArr  [][]byte                // population array in little endian
 	gFunc   func(x float64) float64 // function responsible for grading the received solution
 
 	// fitCache  map[float64]float64 // fit cache. Holds the values of calculated fits until cleared.
@@ -76,7 +78,7 @@ func NewGeneticAlgorithmSolver(a float64, b float64, d byte, gFunc func(x float6
 
 	// calculate size of the population array and create it
 	ga.l = int(math.Ceil(math.Log2((ga.b-ga.a)*(1/math.Pow(10, -float64(ga.d))) + 1)))
-	ga.popArr = make([]byte, ga.l)
+	// ga.popArr = make([]byte, ga.l)
 
 	return
 }
@@ -132,6 +134,18 @@ func (gas GeneticAlgorithmSolver) L() int {
 	return gas.l
 }
 
+// Population returns the current population.
+func (gas GeneticAlgorithmSolver) Population() [][]byte {
+	pop := make([][]byte, len(gas.popArr))
+	for i := 0; i < len(pop); i++ {
+		dst := make([]byte, len(gas.popArr[i]))
+		copy(dst, gas.popArr[i])
+		pop[i] = dst
+	}
+
+	return pop
+}
+
 // Selection starts the process of selection for the passed values.
 func (gas *GeneticAlgorithmSolver) Selection(vals ...float64) error {
 	// Check if the given values are valid
@@ -139,6 +153,11 @@ func (gas *GeneticAlgorithmSolver) Selection(vals ...float64) error {
 		if val < gas.a || val > gas.b {
 			return errors.New("at least one passed value is not contained in <a,b> set")
 		}
+	}
+
+	// Populate all the received entries to the population array
+	for i := 0; i < len(vals); i++ {
+		gas.popArr = append(gas.popArr, gas.XIntToXBin(uint32(gas.XRealToXInt(vals[i]))))
 	}
 
 	// Calculate the grades and fits
@@ -181,12 +200,14 @@ func (gas *GeneticAlgorithmSolver) fit(x float64) float64 {
 	return fit
 }
 
-// Probability calculates the probability of the i-th fit. Should be ran after all the Grade and Fit calls.
+// Probability calculates the probability of the i-th fit. Should be ran after all the Grade and Fit
+// calls.
 func (gas *GeneticAlgorithmSolver) probability(i int) float64 {
 	return gas.fitCache[i] / gas.fitSum
 }
 
-// cdfUpperBound returns the upper bound of a given i in the cumulative distribution function of this algorithm.
+// cdfUpperBound returns the upper bound of a given i in the cumulative distribution function of
+// this algorithm.
 func (gas *GeneticAlgorithmSolver) cdfUpperBound(i int) float64 {
 	if i == 0 {
 		return gas.probCache[i]
@@ -201,6 +222,120 @@ func (gas *GeneticAlgorithmSolver) Cache() (gradeCache []float64, fitCache []flo
 	fitCache = gas.fitCache
 	probCache = gas.probCache
 	probHBCache = gas.probHBCache
+
+	return
+}
+
+// Crossover runs an operation that groups random genomes in pairs (parents) and combines their
+// genetic information to generate new offsprings. The probability of crossover is defined by the
+// passed parameter. Panics if that parameter is not in these bounds: 0.5 < cp <= 1.
+func (gas *GeneticAlgorithmSolver) Crossover(cp float64) (parents [][]byte, offsprings [][]byte, cutpoints []int, err error) {
+	// 1:58:17
+	if len(gas.popArr) == 0 || len(gas.probCache) == 0 {
+		return nil, nil, nil, errors.New("invalid cache state")
+	} else if 0.5 > cp || cp > 1 {
+		return nil, nil, nil, errors.New("provided invalid crossover probability value")
+	}
+
+	cutpoints = make([]int, len(gas.popArr))
+
+	// Pick parents in a random manner from the current population
+	rand.Seed(time.Now().Unix())
+	for i := 0; i < len(gas.popArr); i++ {
+		var parent []byte
+		if gas.probHBCache[i] <= cp {
+			parent = gas.popArr[i]
+		} else {
+			parent = nil
+		}
+		offsprings = append(offsprings, nil)
+		parents = append(parents, parent)
+	}
+
+	// Perform the operation of crossover
+	var parentA, parentB []byte
+	for i := 0; i < len(parents); i++ {
+		if parents[i] == nil {
+			cutpoints[i] = -1
+			continue
+		}
+		parentA = parents[i]
+		offsprings[i] = make([]byte, gas.l)
+		j := i + 1
+		for ; j < len(parents); j++ {
+			if parents[j] == nil {
+				continue
+			}
+			parentB = parents[j]
+			offsprings[j] = make([]byte, gas.l)
+			break
+		}
+
+		// If no parrents left then the parrent is a bachelor and will be passed further
+		if parentB == nil {
+			offsprings[i] = parentA
+			break
+		}
+
+		// Get random cut point and crossover them in place of i and j
+		cut := rand.Intn(gas.l - 1)
+		slice1, slice2 := parentA[cut:], parentB[cut:]
+		for k := 0; k < cut; k++ {
+			offsprings[i][k] = parentA[k]
+			offsprings[j][k] = parentB[k]
+		}
+		l := 0
+		for k := cut; k < gas.l; k++ {
+			offsprings[i][k] = slice2[l]
+			offsprings[j][k] = slice1[l]
+			l++
+		}
+
+		cutpoints[i], cutpoints[j] = cut, cut
+		parentA, parentB = nil, nil
+		i = j
+	}
+
+	// Update the population
+	for i := 0; i < len(gas.popArr); i++ {
+		if offsprings[i] == nil {
+			continue
+		}
+		gas.popArr[i] = offsprings[i]
+	}
+
+	return
+}
+
+// Mutate runs an operation that mutates random bits in the current population based on the passed
+// mutation probability. Panics if probability is not in these bounds: 0 < mp <= 0.01.
+func (gas *GeneticAlgorithmSolver) Mutate(mp float64) (mutations [][]int, err error) {
+	if len(gas.popArr) == 0 {
+		return nil, errors.New("invalid cache state")
+	} else if mp <= 0 || mp > 0.01 {
+		return nil, errors.New("provided invalid mutation probability value")
+	}
+
+	mutations = make([][]int, len(gas.popArr))
+
+	rand.Seed(time.Now().Unix())
+	for i := 0; i < len(gas.popArr); i++ {
+		var localMutations []int
+		for j := 0; j < len(gas.popArr[i]); j++ {
+			r := rand.Float64()
+			if r <= mp {
+				localMutations = append(localMutations, j)
+				if gas.popArr[i][j] == 0 {
+					gas.popArr[i][j] = 1
+				} else {
+					gas.popArr[i][j] = 0
+				}
+			}
+		}
+		if localMutations != nil {
+			mutations[i] = localMutations
+		}
+	}
 
 	return
 }

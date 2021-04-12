@@ -3,11 +3,16 @@ package evolalg
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"math/rand"
 	"testing"
+	"time"
 )
 
 func TestGenAlgorithmConstructor(t *testing.T) {
-	gas, err := NewGeneticAlgorithmSolver(-2, 3, 3)
+	gas, err := NewGeneticAlgorithmSolver(-2, 3, 3, func(x float64) float64 {
+		return math.Mod(x, 1*(math.Cos(20*math.Pi*x)-math.Sin(x)))
+	})
 	if err != nil {
 		t.Log(err.Error())
 		t.Fail()
@@ -20,7 +25,9 @@ func TestGenAlgorithmConstructor(t *testing.T) {
 		t.Fail()
 	}
 
-	gas, err = NewGeneticAlgorithmSolver(-1.322, 3.219, 2)
+	gas, err = NewGeneticAlgorithmSolver(-1.322, 3.219, 2, func(x float64) float64 {
+		return math.Mod(x, 1*(math.Cos(20*math.Pi*x)-math.Sin(x)))
+	})
 	if err == nil {
 		t.Log("provided precision was lower than sufficient yet it passed with no error")
 		t.Fail()
@@ -29,7 +36,9 @@ func TestGenAlgorithmConstructor(t *testing.T) {
 
 func TestConversions(t *testing.T) {
 	// Create the generic algorithm solver
-	gas, err := NewGeneticAlgorithmSolver(-2, 3, 3)
+	gas, err := NewGeneticAlgorithmSolver(-2, 3, 3, func(x float64) float64 {
+		return math.Mod(x, 1*(math.Cos(20*math.Pi*x)-math.Sin(x)))
+	})
 	if err != nil {
 		t.Log(err.Error())
 		t.Fail()
@@ -82,5 +91,63 @@ func TestConversions(t *testing.T) {
 		t.Log("real to binary conversion failed")
 		t.Log(fmt.Sprintf("resBin=%v", resBin))
 		t.Fail()
+	}
+}
+
+func TestCrossoverAndMutation(t *testing.T) {
+	N := 10
+	a, b := -4.0, 12.0
+	d := 3
+	gas, err := NewGeneticAlgorithmSolver(a, b, byte(d), func(x float64) float64 {
+		return math.Mod(x, 1*(math.Cos(20*math.Pi*x)-math.Sin(x)))
+	})
+	if err != nil {
+		t.Log(err.Error())
+		t.Fail()
+	}
+
+	rands := make([]float64, N)
+	rand.Seed(time.Now().UnixNano())
+	for i := 0; i < N; i++ {
+		rands[i] = a + rand.Float64()*(b-a)
+		rands[i] = math.Round(rands[i]*math.Pow10(int(d))) / math.Pow10(int(d)) // TODO Sprawdzić czy to potrzebne
+	}
+	err = gas.Selection(rands...)
+	if err != nil {
+		t.Log(err.Error())
+		t.Fail()
+		return
+	}
+
+	t.Log("Before crossover")
+	for i := 0; i < len(gas.popArr); i++ {
+		t.Log(fmt.Sprintf("%v", gas.popArr[i]))
+	}
+	_, _, _, err = gas.Crossover(0.75)
+	if err != nil {
+		t.Log(err.Error())
+		t.Fail()
+		return
+	}
+	fmt.Println()
+	t.Log("After crossover")
+	for i := 0; i < len(gas.popArr); i++ {
+		t.Log(fmt.Sprintf("%v", gas.popArr[i]))
+	}
+
+	mut, err := gas.Mutate(0.005)
+	if err != nil {
+		t.Log(err.Error())
+		t.Fail()
+		return
+	}
+	fmt.Println()
+	t.Log("After mutations")
+	for i := 0; i < len(gas.popArr); i++ {
+		t.Log(fmt.Sprintf("%v", gas.popArr[i]))
+	}
+	t.Log("Mutation points")
+	for i := 0; i < len(gas.popArr); i++ {
+		t.Log(fmt.Sprintf("%v", mut[i]))
 	}
 }
