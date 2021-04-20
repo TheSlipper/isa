@@ -2,25 +2,40 @@ package evolalg
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"time"
 )
 
+// EpochData contains data on the state of a generic algorithm's solution after an iteration of
+// calculations.
+type EpochData struct {
+	PopulationBytes [][]byte  `json:"populationBytes"`
+	PopulationF64   []float64 `json:"populationF64"`
+	Fits            []float64 `json:"fits"`
+	Grades          []float64 `json:"grades"`
+	Elite           float64   `json:"elite"`
+	EliteFit        float64   `json:"eliteFit"`
+	FMin            float64   `json:"fMin"`
+	FAVG            float64   `json:"fAVG"`
+	FMax            float64   `json:"fMax"`
+}
+
 // GeneticAlgorithmSolver is a struct that contains all of the data related to a generic algorithm instance and shares
 // a set of functions for solving this certain genetic algorithm.
 type GeneticAlgorithmSolver struct {
-	a       float64                 // lower bound of the set (inclusive)
-	b       float64                 // higher bound of the set (inclusive)
-	d       byte                    // accuracy (e.g. accuracy 3 means 10^3 for each decimal therefore for 3 it would generate a 3001 population)
-	l       int                     // minimal bit size for representation of all of the population
-	fmin    float64                 // lowest value of the gFunc in the <a, b> set
-	popSize uint                    // actual population size (higher bound of <0, pop> set)
-	popArr  [][]byte                // population array in little endian
-	gFunc   func(x float64) float64 // function responsible for grading the received solution
+	a        float64                 // lower bound of the set (inclusive)
+	b        float64                 // higher bound of the set (inclusive)
+	d        byte                    // accuracy (e.g. accuracy 3 means 10^3 for each decimal therefore for 3 it would generate a 3001 population)
+	l        int                     // minimal bit size for representation of all of the population
+	elite    float64                 // the value used for the current best solution.
+	eliteFit float64                 // the fit of the currently best solution.
+	fmin     float64                 // lowest value of the gFunc in the <a, b> set
+	popSize  uint                    // actual population size (higher bound of <0, pop> set)
+	popArr   [][]byte                // population array in little endian
+	gFunc    func(x float64) float64 // function responsible for grading the received solution
 
-	// fitCache  map[float64]float64 // fit cache. Holds the values of calculated fits until cleared.
-	// probCache map[float64]float64 // probability cache. Holds the values of calculated probabilities until cleared.
 	fitSum      float64   // sum of all the cached fits. Stored in struct for optimization purposes.
 	gradeCache  []float64 // grade cache. Holds the values of calculated grades.
 	fitCache    []float64 // fit cache. Holds the values of calculated fits until cleared.
@@ -121,7 +136,9 @@ func (gas GeneticAlgorithmSolver) XIntToXBin(val uint32) []byte {
 
 // XIntToXReal converts x in integer form to x in floating point form.
 func (gas GeneticAlgorithmSolver) XIntToXReal(xint int) float64 {
-	return gas.a + ((gas.b - gas.a) * float64(xint) / (math.Pow(2, float64(gas.l)) - 1))
+	val := gas.a + ((gas.b - gas.a) * float64(xint) / (math.Pow(2, float64(gas.l)) - 1))
+	val = math.Round(val*math.Pow10(int(gas.d))) / math.Pow10(int(gas.d))
+	return val
 }
 
 // XRealToXInt converts x in floating point form to x in integer form.
@@ -153,11 +170,6 @@ func (gas *GeneticAlgorithmSolver) Selection(vals ...float64) error {
 		if val < gas.a || val > gas.b {
 			return errors.New("at least one passed value is not contained in <a,b> set")
 		}
-	}
-
-	// Populate all the received entries to the population array
-	for i := 0; i < len(vals); i++ {
-		gas.popArr = append(gas.popArr, gas.XIntToXBin(uint32(gas.XRealToXInt(vals[i]))))
 	}
 
 	// Calculate the grades and fits
@@ -240,7 +252,7 @@ func (gas *GeneticAlgorithmSolver) Crossover(cp float64) (parents [][]byte, offs
 	cutpoints = make([]int, len(gas.popArr))
 
 	// Pick parents in a random manner from the current population
-	rand.Seed(time.Now().Unix())
+	// rand.Seed(time.Now().Unix())
 	for i := 0; i < len(gas.popArr); i++ {
 		var parent []byte
 		if gas.probHBCache[i] <= cp {
@@ -318,7 +330,7 @@ func (gas *GeneticAlgorithmSolver) Mutate(mp float64) (mutations [][]int, err er
 
 	mutations = make([][]int, len(gas.popArr))
 
-	rand.Seed(time.Now().Unix())
+	// rand.Seed(time.Now().Unix())
 	for i := 0; i < len(gas.popArr); i++ {
 		var localMutations []int
 		for j := 0; j < len(gas.popArr[i]); j++ {
@@ -334,6 +346,168 @@ func (gas *GeneticAlgorithmSolver) Mutate(mp float64) (mutations [][]int, err er
 		}
 		if localMutations != nil {
 			mutations[i] = localMutations
+		}
+	}
+
+	return
+}
+
+// saveStateToHistory saves the current state of a genetic algorithm solver to an epoch data struct.
+func (gas GeneticAlgorithmSolver) saveStateToHistory(N int, vals []float64, ed *EpochData) (err error) {
+	ed.PopulationF64 = make([]float64, N)
+	ed.Fits = make([]float64, N)
+	ed.Grades = make([]float64, N)
+	// ed.PopulationBytes = make([][]byte, N)
+
+	copied := copy(ed.PopulationF64, vals)
+	if copied != N {
+		err = fmt.Errorf("insufficient amount of elements copied - %d instead of %d", copied, N)
+		return
+	}
+	copied = copy(ed.Fits, gas.fitCache)
+	if copied != N {
+		err = fmt.Errorf("insufficient amount of elements copied - %d instead of %d", copied, N)
+		return
+	}
+	copied = copy(ed.Grades, gas.gradeCache)
+	if copied != N {
+		err = fmt.Errorf("insufficient amount of elements copied - %d instead of %d", copied, N)
+		return
+	}
+
+	ed.PopulationBytes = gas.Population()
+	ed.Elite = gas.elite
+	ed.EliteFit = gas.eliteFit
+
+	// fmin, favg fmax - values of best, worst and max values of this epoch
+	ed.FMin, ed.FAVG, ed.FMax = 100000000000, 0, -100000
+	i := 0
+	for ; i < len(gas.gradeCache); i++ {
+		if ed.FMin > gas.gradeCache[i] {
+			ed.FMin = gas.gradeCache[i]
+		}
+		if ed.FMax < gas.gradeCache[i] {
+			ed.FMax = gas.gradeCache[i]
+		}
+		ed.FAVG += gas.gradeCache[i]
+	}
+	ed.FAVG = ed.FAVG / float64(i)
+
+	return
+}
+
+// updateElite searches for a new elite and updates the solver data.
+func (gas *GeneticAlgorithmSolver) updateElite(vals []float64) {
+	for i := 0; i < len(gas.fitCache); i++ {
+		if gas.eliteFit < gas.fitCache[i] {
+			gas.eliteFit = gas.fitCache[i]
+			gas.elite = vals[i]
+		}
+	}
+}
+
+// Solve runs the genetic algorithm solver for N random solutions, for a given amount of epochs, for
+// a given crossing probability, for a given mutation probability and returns a history of the
+// algorithm's execution.
+func (gas *GeneticAlgorithmSolver) Solve(N, epochs int, cp, mp float64) (hist []EpochData, err error) {
+	// Create a history
+	hist = make([]EpochData, epochs+1)
+
+	// Initialize the solver
+	vals := make([]float64, N)
+	gas.popArr = make([][]byte, N)
+	gas.fitCache = make([]float64, N)
+	gas.gradeCache = make([]float64, N)
+	rand.Seed(time.Now().UnixNano())
+	gas.eliteFit = -10000000
+	gas.elite = gas.eliteFit
+
+	for i := 0; i < N; i++ {
+		// Create a population
+		vals[i] = gas.a + rand.Float64()*(gas.b-gas.a)
+		vals[i] = math.Round(vals[i]*math.Pow10(int(gas.d))) / math.Pow10(int(gas.d))
+
+		// Calculate its grades
+		gas.popArr[i] = gas.XIntToXBin(uint32(gas.XRealToXInt(vals[i])))
+		gas.fitCache[i] = gas.fit(vals[i])
+		gas.gradeCache[i] = gas.Grade(vals[i])
+
+		// If fit's the best then pick it as an elite
+		if gas.fitCache[i] > gas.eliteFit {
+			gas.elite = vals[i]
+			gas.eliteFit = gas.fitCache[i]
+		}
+	}
+
+	// Save the current state to the history
+	err = gas.saveStateToHistory(N, vals, &hist[0])
+	if err != nil {
+		return
+	}
+
+	// Run the selection
+	err = gas.Selection(vals...)
+	if err != nil {
+		return
+	}
+
+	// Run as many times as it was specified (+1 because we saved in 0 the state before the algorithm)
+	for i := 1; i < epochs+1; i++ {
+		// Updates elites
+		gas.updateElite(vals)
+
+		// Run crossover
+		_, _, _, err = gas.Crossover(cp)
+		if err != nil {
+			return
+		}
+
+		// Run mutation
+		_, err = gas.Mutate(mp)
+		if err != nil {
+			return
+		}
+
+		// Update f64 population and calculate the new fits
+		for i := 0; i < N; i++ {
+			vals[i] = gas.XIntToXReal(gas.XBinToXInt(gas.popArr[i]))
+		}
+
+		// Run selection before the next run (and for saving the state of the epoch after it)
+		err = gas.Selection(vals...)
+		if err != nil {
+			return
+		}
+
+		// Check if elite is still in - if not put it in a random place (unless the random place is better)
+		eliteIn := false
+		for i := 0; i < N; i++ {
+			if gas.eliteFit == gas.fitCache[i] {
+				eliteIn = true
+				break
+			}
+		}
+		if !eliteIn {
+			i := rand.Intn(N)
+
+			if gas.eliteFit < gas.fitCache[i] {
+				gas.elite = vals[i]
+				gas.eliteFit = gas.fitCache[i]
+			} else {
+				gas.popArr[i] = gas.XIntToXBin(uint32(gas.XRealToXInt(gas.elite)))
+				vals[i] = gas.elite
+
+				err = gas.Selection(vals...)
+				if err != nil {
+					return
+				}
+			}
+		}
+
+		// Save to history
+		err = gas.saveStateToHistory(N, vals, &hist[i])
+		if err != nil {
+			return
 		}
 	}
 

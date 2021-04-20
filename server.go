@@ -1,43 +1,30 @@
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"html/template"
 	"math"
-	"math/rand"
 	"net/http"
+	"os"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/TheSlipper/isa/evolalg"
+	chart "github.com/wcharczuk/go-chart/v2"
 )
-
-type ExecResult struct {
-	InitXReal       string
-	InitXBin        []byte
-	ParentXBin      []byte
-	CutPoint        int
-	Offspring       []byte
-	PostCrossover   []byte
-	MutationIndeces []int
-	PostMutation    []byte
-	FinalXReal      string
-	FinalFx         float64
-}
 
 // root pobiera plik strony root.html z dysku i prezentuje go przeglądarce.
 func root(w http.ResponseWriter, r *http.Request) {
 	// Get the GET params
 	generate := true
 	nStr, aStr, bStr, dStr := getGETParam("N", w, r), getGETParam("a", w, r), getGETParam("b", w, r), getGETParam("d", w, r)
-	cpStr, mpStr := getGETParam("Pk", w, r), getGETParam("Pm", w, r)
-	if nStr == "" || aStr == "" || bStr == "" || dStr == "" || cpStr == "" || mpStr == "" {
+	cpStr, mpStr, epochsStr := getGETParam("Pk", w, r), getGETParam("Pm", w, r), getGETParam("epoki", w, r)
+	if nStr == "" || aStr == "" || bStr == "" || dStr == "" || cpStr == "" || mpStr == "" || epochsStr == "" {
 		generate = false
 	}
+	jsonFormat := getGETParam("json", w, r)
 
 	// Generate the values if all the necessary data was given
-	var results []ExecResult
+	var hist []evolalg.EpochData
 	if generate {
 		// Convert to values
 		N, err := strconv.Atoi(nStr)
@@ -71,6 +58,11 @@ func root(w http.ResponseWriter, r *http.Request) {
 			throwErr(w, r, err, http.StatusInternalServerError)
 			return
 		}
+		epochs, err := strconv.Atoi(epochsStr)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
 
 		// solver for this assignment with a grading function described by this formula:
 		// F(x)= x MOD1 *(COS(20*π *x)–SIN(x))
@@ -83,70 +75,102 @@ func root(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Run a selection
-		results = make([]ExecResult, N)
-		rands := make([]float64, N)
-		rand.Seed(time.Now().UnixNano())
-		for i := 0; i < N; i++ {
-			rands[i] = a + rand.Float64()*(b-a)
-			rands[i] = math.Round(rands[i]*math.Pow10(int(d))) / math.Pow10(int(d)) // TODO Sprawdzić czy to potrzebne
-		}
-		err = gas.Selection(rands...)
+		hist, err = gas.Solve(N, epochs, cp, mp)
 		if err != nil {
 			throwErr(w, r, err, http.StatusInternalServerError)
 			return
 		}
 
-		// Crossover and save the results
-		parents, offsprings, cutpoints, err := gas.Crossover(cp)
-		if err != nil {
-			throwErr(w, r, err, http.StatusInternalServerError)
-			return
-		}
+		// Create the fmax, favg, fmin graph
+		fmax, favg, fmin := make([]float64, len(hist)), make([]float64, len(hist)), make([]float64, len(hist))
+		epochsArr := make([]float64, len(hist))
+		ticker := len(hist) / 20
+		epochTicks := []chart.Tick{}
+		i := 0
+		for ; i < len(hist); i++ {
+			fmax[i] = hist[i].FMax
+			favg[i] = hist[i].FAVG
+			fmin[i] = hist[i].FMin
+			epochsArr[i] = float64(i)
 
-		// Get the population after the crossover
-		postCrossoverPop := gas.Population()
-
-		// Mutate and save the results
-		mut, err := gas.Mutate(mp)
-		if err != nil {
-			throwErr(w, r, err, http.StatusInternalServerError)
-			return
-		}
-
-		// Get the population after the mutation
-		postMutPop := gas.Population()
-
-		// Populate the entries
-		template := strings.Replace(fmt.Sprint("%."+strconv.Itoa(int(d))+"f"), " ", "", -1)
-		for i := 0; i < N; i++ {
-			results[i] = ExecResult{
-				InitXReal:       fmt.Sprintf(template, rands[i]),
-				InitXBin:        gas.XIntToXBin(uint32(gas.XRealToXInt(rands[i]))),
-				ParentXBin:      parents[i],
-				CutPoint:        cutpoints[i],
-				Offspring:       offsprings[i],
-				PostCrossover:   postCrossoverPop[i],
-				MutationIndeces: mut[i],
-				PostMutation:    postMutPop[i],
+			if len(hist) < 20 {
+				epochTicks = append(epochTicks, chart.Tick{Value: float64(i), Label: strconv.Itoa(i)})
+			} else if i%ticker == 0 {
+				epochTicks = append(epochTicks, chart.Tick{Value: float64(i), Label: strconv.Itoa(i)})
 			}
-
-			fXReal := gas.XIntToXReal(gas.XBinToXInt(postMutPop[i]))
-			results[i].FinalXReal = fmt.Sprintf(template, fXReal)
-			results[i].FinalFx = gas.Grade(fXReal)
 		}
+		if epochTicks[len(epochTicks)-1].Value != float64(i) {
+			epochTicks = append(epochTicks, chart.Tick{Value: float64(epochs),
+				Label: strconv.Itoa(epochs)})
+		}
+
+		graph := chart.Chart{
+			XAxis: chart.XAxis{
+				Name: "Epoka",
+				Range: &chart.ContinuousRange{
+					Min: 0.0,
+					Max: float64(epochs),
+				},
+				Ticks: epochTicks,
+			},
+			YAxis: chart.YAxis{
+				Name: "f(x)",
+			},
+			Series: []chart.Series{
+				chart.ContinuousSeries{
+					Name: "fmax",
+					Style: chart.Style{
+						StrokeColor: chart.GetDefaultColor(0).WithAlpha(64),
+						StrokeWidth: 3.5,
+					},
+					XValues: epochsArr,
+					YValues: fmax,
+				},
+				chart.ContinuousSeries{
+					Name: "favg",
+					Style: chart.Style{
+						StrokeColor: chart.GetDefaultColor(1).WithAlpha(64),
+						StrokeWidth: 3.5,
+					},
+					XValues: epochsArr,
+					YValues: favg,
+				},
+				chart.ContinuousSeries{
+					Name: "fmin",
+					Style: chart.Style{
+						StrokeColor: chart.GetDefaultColor(2).WithAlpha(64),
+						StrokeWidth: 3.5,
+					},
+					XValues: epochsArr,
+					YValues: fmin,
+				},
+			},
+		}
+
+		f, _ := os.Create("static/fmax_favg_fmin.svg")
+		defer f.Close()
+		graph.Render(chart.SVG, f)
 	}
 
 	// generate template and process it
-	t, err := template.ParseFiles("root.html")
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintln(w, "InternalServerError")
-		fmt.Println(err.Error())
-		return
-	}
-	err = t.Execute(w, results)
-	if err != nil {
-		fmt.Println(err.Error())
+	if jsonFormat == "" {
+		t, err := template.ParseFiles("root.html")
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
+		err = t.Execute(w, hist)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
+	} else {
+		byteArr, err := json.Marshal(hist)
+		if err != nil {
+			throwErr(w, r, err, http.StatusInternalServerError)
+			return
+		}
+		w.Write(byteArr)
+		w.WriteHeader(200)
 	}
 }
