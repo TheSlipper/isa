@@ -1,0 +1,12 @@
+[Unit]
+Description=Inteligentne Systemy Agentowe
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/skywalker-pool/Servers/isa
+ExecStart=/skywalker-pool/Servers/isa/isa
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
