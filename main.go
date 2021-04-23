@@ -10,7 +10,7 @@ import (
 
 func main() {
 	// Start the server on given port
-	port := 8081
+	port := 8080
 	log.Println("Registring a root endpoint")
 	fs := http.FileServer(http.Dir("./static/"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))

@@ -147,6 +147,7 @@ func root(w http.ResponseWriter, r *http.Request) {
 			},
 		}
 
+		os.Remove("static/fmax_favg_fmin.svg")
 		f, _ := os.Create("static/fmax_favg_fmin.svg")
 		defer f.Close()
 		graph.Render(chart.SVG, f)
