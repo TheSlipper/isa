@@ -5,8 +5,8 @@ import (
 	"io/ioutil"
 	"math"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 )
 
 // func TestGenAlgorithmConstructor(t *testing.T) {
@@ -152,9 +152,7 @@ import (
 // 	}
 // }
 
-func run(a, b, cp, mp float64, d byte, N, epochs int, bench *testing.B, wg *sync.WaitGroup, sc chan string) {
-	wg.Add(1)
-
+func run(a, b, cp, mp float64, d byte, N, epochs int, bench *testing.B) (fmin, favg, fmax float64) {
 	// Generate the values if all the necessary data was given
 	var hist []EpochData
 
@@ -178,18 +176,34 @@ func run(a, b, cp, mp float64, d byte, N, epochs int, bench *testing.B, wg *sync
 	}
 
 	// Create the fmax, favg, fmin graph
-	fmax, favg, fmin := make([]float64, len(hist)), make([]float64, len(hist)), make([]float64, len(hist))
-	epochsArr := make([]float64, len(hist))
-	i := 0
-	for ; i < len(hist); i++ {
-		fmax[i] = hist[i].FMax
-		favg[i] = hist[i].FAVG
-		fmin[i] = hist[i].FMin
-		epochsArr[i] = float64(i)
-	}
+	// fmax, favg, fmin := make([]float64, len(hist)), make([]float64, len(hist)), make([]float64, len(hist))
+	// epochsArr := make([]float64, len(hist))
+	// i := 0
+	// for ; i < len(hist); i++ {
+	// 	fmax[i] = hist[i].FMax
+	// 	favg[i] = hist[i].FAVG
+	// 	fmin[i] = hist[i].FMin
+	// 	epochsArr[i] = float64(i)
+	// }
+	fmin = hist[len(hist)-1].FMin
+	favg = hist[len(hist)-1].FAVG
+	fmax = hist[len(hist)-1].FMax
+	return
 
-	sc <- fmt.Sprintf("%d, %d, %f, %f, %f, %f, %f", N, epochs, cp, mp, fmax, favg, fmin)
-	wg.Done()
+	// sc <- fmt.Sprintf("%d, %d, %f, %f, %f, %f, %f", N, epochs, cp, mp, fmax, favg, fmin)
+}
+
+func runLoop(a, b, cp, mp float64, d byte, N, epochs, iters int, bench *testing.B, sc chan string) {
+	fmax, favg, fmin := 0.0, 0.0, 0.0
+	for i := 0; i < iters; i++ {
+		fminI, favgI, fmaxI := run(a, b, cp, mp, d, N, epochs, bench)
+		fmin += fminI
+		favg += favgI
+		fmax += fmaxI
+	}
+	fmax, favg, fmin = fmax/float64(iters), favg/float64(iters), fmin/float64(iters)
+
+	sc <- fmt.Sprintf("%d, %d, %f, %f, %f, %f, %f\n", N, epochs, cp, mp, fmax, favg, fmin)
 }
 
 func BenchmarkLabs(bench *testing.B) {
@@ -201,12 +215,14 @@ func BenchmarkLabs(bench *testing.B) {
 	for i := 30; i <= 80; i += 5 {
 		Ns = append(Ns, i)
 	}
+	NsLen := len(Ns)
 
 	// cp set
 	var cps []float64
 	for i := 0.50; i <= 0.9; i += 0.05 {
 		cps = append(cps, i)
 	}
+	cpsLen := len(cps)
 
 	// mp set
 	var mps []float64
@@ -214,38 +230,59 @@ func BenchmarkLabs(bench *testing.B) {
 	for i := 0.0005; i <= 0.01; i += 0.0005 {
 		mps = append(mps, i)
 	}
+	mpsLen := len(mps)
 
 	// epoch set
 	var epochSet []int
 	for i := 50; i <= 150; i += 10 {
 		epochSet = append(epochSet, i)
 	}
+	epochsLen := len(epochSet)
 
-	bench.Logf("Ns: %d, cps: %d, mps: %d, epochSet: %d\n", len(Ns), len(cps), len(mps), len(epochSet))
 	bench.StartTimer()
-	strChan := make(chan string, 16)
-	var wg sync.WaitGroup
+	workerRoutineCnt := 16
+	strChan := make(chan string, workerRoutineCnt)
+	// var wg sync.WaitGroup
 	var sb strings.Builder
+	sb.WriteString("N, epochs, cp, mp, fmax, favg, fmin\n")
 	launched := 0
-	for i := 0; i < len(mps); i++ {
-		for j := 0; j < len(epochSet); j++ {
-			for k := 0; k < len(Ns); k++ {
-				for l := 0; l < len(cps); l++ {
-					if launched == 16 {
-						wg.Wait()
-						for i := 0; i < 16; i++ {
-							foo := <-strChan
-							sb.WriteString(foo + "\n")
+	for i := 0; i < mpsLen; i++ {
+		for j := 0; j < epochsLen; j++ {
+			for k := 0; k < NsLen; k++ {
+				for l := 0; l < cpsLen; l++ {
+					for len(strChan) > 0 || launched == workerRoutineCnt {
+						select {
+						case foo, ok := <-strChan:
+							if ok {
+								sb.WriteString(foo)
+								launched--
+							} else {
+								panic("string channel closed")
+							}
+						default:
+							time.Sleep(time.Microsecond * 20)
 						}
-						launched = 0
 					}
-					go run(a, b, cps[l], mps[i], d, Ns[k], epochSet[j], bench, &wg, strChan)
+
+					// go run(a, b, cps[l], mps[i], d, Ns[k], epochSet[j], bench, strChan)
+					go runLoop(a, b, cps[l], mps[i], d, Ns[k], epochSet[j], 2, bench, strChan)
 					launched++
 				}
 			}
 		}
 	}
-	wg.Wait()
+	for len(strChan) > 0 {
+		select {
+		case foo, ok := <-strChan:
+			if ok {
+				sb.WriteString(foo)
+			} else {
+				panic("string channel closed")
+			}
+		default:
+			time.Sleep(time.Microsecond * 20)
+		}
+	}
 	bench.StopTimer()
 
 	ioutil.WriteFile("../static/stats.csv", []byte(sb.String()), 0666)
